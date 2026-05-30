@@ -92,43 +92,43 @@ push_to_ha() {
 
     if [ "${status}" = "success" ]; then
         ha_set_sensor \
-            "sensor.speedtest_download" \
+            "sensor.openspeedtest_download" \
             "${download}" \
             "Mbit/s" \
             "data_rate" \
-            "SpeedTest Download" \
+            "OpenSpeedTest Download" \
             "mdi:download-network"
 
         ha_set_sensor \
-            "sensor.speedtest_upload" \
+            "sensor.openspeedtest_upload" \
             "${upload}" \
             "Mbit/s" \
             "data_rate" \
-            "SpeedTest Upload" \
+            "OpenSpeedTest Upload" \
             "mdi:upload-network"
 
         ha_set_sensor \
-            "sensor.speedtest_ping" \
+            "sensor.openspeedtest_ping" \
             "${ping}" \
             "ms" \
             "duration" \
-            "SpeedTest Ping" \
+            "OpenSpeedTest Ping" \
             "mdi:timer-outline"
 
         ha_set_sensor \
-            "sensor.speedtest_status" \
+            "sensor.openspeedtest_status" \
             "OK" \
             "" \
             "" \
-            "SpeedTest Status" \
+            "OpenSpeedTest Status" \
             "mdi:check-circle"
     else
         ha_set_sensor \
-            "sensor.speedtest_status" \
+            "sensor.openspeedtest_status" \
             "Error" \
             "" \
             "" \
-            "SpeedTest Status" \
+            "OpenSpeedTest Status" \
             "mdi:alert-circle"
     fi
 
@@ -136,11 +136,11 @@ push_to_ha() {
     local now
     now=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
     ha_set_sensor \
-        "sensor.speedtest_last_run" \
+        "sensor.openspeedtest_last_run" \
         "${now}" \
         "" \
         "timestamp" \
-        "SpeedTest Last Run" \
+        "OpenSpeedTest Last Run" \
         "mdi:clock-outline"
 }
 
