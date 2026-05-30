@@ -764,16 +764,17 @@ function renderCharts() {
 async function loadData() {
   try {
     // Load config
-    const cfgRes = await fetch('/api/config');
+    const cfgRes = await fetch('/api/config.json');
     if (cfgRes.ok) {
       config = await cfgRes.json();
       document.getElementById('serverUrl').textContent = config.openspeedtest_url || '—';
     }
 
     // Load results
-    const res = await fetch('/api/results?' + Date.now());
-    if (!res.ok) throw new Error('Failed to fetch');
-    allResults = await res.json();
+    const res = await fetch('/api/results.json?' + Date.now());
+    if (!res.ok) throw new Error('Results not ready yet (HTTP ' + res.status + ')');
+    const text = await res.text();
+    allResults = text.trim() ? JSON.parse(text) : [];
 
     const success = allResults.filter(r => r.status === 'success');
     document.getElementById('resultCount').textContent = `${allResults.length} result${allResults.length !== 1 ? 's' : ''}`;
