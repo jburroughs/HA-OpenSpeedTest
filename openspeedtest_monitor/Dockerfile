@@ -1,16 +1,12 @@
 ARG BUILD_FROM
 FROM $BUILD_FROM
 
-# Install dependencies
+# Install dependencies (base image already has bash, s6, jq, curl)
 RUN apk add --no-cache \
     nginx \
     nodejs \
     npm \
-    curl \
-    jq \
-    tzdata \
-    bash \
-    s6-overlay
+    tzdata
 
 # Copy root filesystem
 COPY rootfs /
