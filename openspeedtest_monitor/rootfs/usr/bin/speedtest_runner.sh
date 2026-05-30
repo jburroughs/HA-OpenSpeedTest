@@ -1,61 +1,195 @@
 #!/usr/bin/env bash
-# OpenSpeedTest runner — polls the self-hosted OpenSpeedTest server
-# using a headless WebSocket-based approach, then saves results.
+# OpenSpeedTest runner — runs tests on schedule, saves results, and pushes
+# sensor states to Home Assistant via the Supervisor REST API.
 
 DATA_DIR="/data/speedtest"
 CONFIG_FILE="${DATA_DIR}/config.json"
 RESULTS_FILE="${DATA_DIR}/results.json"
 
+# HA Supervisor injects this token when homeassistant_api: true
+HA_URL="http://supervisor/core"
+TOKEN="${SUPERVISOR_TOKEN}"
+
 log() { echo "[SpeedTest] $(date '+%Y-%m-%d %H:%M:%S') $*"; }
 
+# ---------------------------------------------------------------
+# Push a sensor state to Home Assistant via the REST API
+# Usage: ha_set_sensor <entity_id> <state> <unit> <device_class> <friendly_name> <icon>
+# ---------------------------------------------------------------
+ha_set_sensor() {
+    local entity_id="$1"
+    local state="$2"
+    local unit="$3"
+    local device_class="$4"
+    local friendly_name="$5"
+    local icon="$6"
+
+    local payload
+    payload=$(jq -n \
+        --arg state "${state}" \
+        --arg unit "${unit}" \
+        --arg dc "${device_class}" \
+        --arg fn "${friendly_name}" \
+        --arg icon "${icon}" \
+        '{
+            state: $state,
+            attributes: {
+                unit_of_measurement: $unit,
+                device_class: $dc,
+                friendly_name: $fn,
+                icon: $icon,
+                state_class: "measurement"
+            }
+        }')
+
+    local http_code
+    http_code=$(curl -s -o /dev/null -w "%{http_code}" \
+        -X POST \
+        -H "Authorization: Bearer ${TOKEN}" \
+        -H "Content-Type: application/json" \
+        -d "${payload}" \
+        "${HA_URL}/api/states/${entity_id}")
+
+    if [ "${http_code}" = "200" ] || [ "${http_code}" = "201" ]; then
+        log "  ✓ ${entity_id} = ${state}${unit}"
+    else
+        log "  ✗ Failed to set ${entity_id} (HTTP ${http_code})"
+    fi
+}
+
+# ---------------------------------------------------------------
+# Push all sensors to HA after a successful test
+# ---------------------------------------------------------------
+push_to_ha() {
+    local download="$1"
+    local upload="$2"
+    local ping="$3"
+    local status="$4"
+
+    log "Pushing entities to Home Assistant..."
+
+    if [ "${status}" = "success" ]; then
+        ha_set_sensor \
+            "sensor.speedtest_download" \
+            "${download}" \
+            "Mbit/s" \
+            "data_rate" \
+            "SpeedTest Download" \
+            "mdi:download-network"
+
+        ha_set_sensor \
+            "sensor.speedtest_upload" \
+            "${upload}" \
+            "Mbit/s" \
+            "data_rate" \
+            "SpeedTest Upload" \
+            "mdi:upload-network"
+
+        ha_set_sensor \
+            "sensor.speedtest_ping" \
+            "${ping}" \
+            "ms" \
+            "duration" \
+            "SpeedTest Ping" \
+            "mdi:timer-outline"
+
+        ha_set_sensor \
+            "sensor.speedtest_status" \
+            "OK" \
+            "" \
+            "" \
+            "SpeedTest Status" \
+            "mdi:check-circle"
+    else
+        ha_set_sensor \
+            "sensor.speedtest_status" \
+            "Error" \
+            "" \
+            "" \
+            "SpeedTest Status" \
+            "mdi:alert-circle"
+    fi
+
+    # Always update last-run timestamp
+    local now
+    now=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+    ha_set_sensor \
+        "sensor.speedtest_last_run" \
+        "${now}" \
+        "" \
+        "timestamp" \
+        "SpeedTest Last Run" \
+        "mdi:clock-outline"
+}
+
+# ---------------------------------------------------------------
+# Run one speed test cycle
+# ---------------------------------------------------------------
 run_test() {
     log "Starting speed test..."
 
-    SPEEDTEST_URL=$(jq -r '.openspeedtest_url' "${CONFIG_FILE}")
-    MAX_RESULTS=$(jq -r '.max_results' "${CONFIG_FILE}")
+    local speedtest_url
+    speedtest_url=$(jq -r '.openspeedtest_url' "${CONFIG_FILE}")
+    local max_results
+    max_results=$(jq -r '.max_results' "${CONFIG_FILE}")
 
-    # Run test via Node.js worker
-    RESULT=$(node /usr/bin/speedtest_worker.js "${SPEEDTEST_URL}" 2>&1)
-    EXIT_CODE=$?
+    local result exit_code
+    result=$(node /usr/bin/speedtest_worker.js "${speedtest_url}" 2>/dev/null)
+    exit_code=$?
 
-    if [ $EXIT_CODE -ne 0 ]; then
-        log "ERROR: Speed test failed: ${RESULT}"
-        # Store failure record
-        TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-        FAIL_ENTRY="{\"timestamp\":\"${TIMESTAMP}\",\"status\":\"error\",\"error\":\"${RESULT}\",\"download\":null,\"upload\":null,\"ping\":null}"
-        UPDATED=$(jq --argjson entry "${FAIL_ENTRY}" --argjson max "${MAX_RESULTS}" \
-            '. + [$entry] | if length > $max then .[-($max):] else . end' "${RESULTS_FILE}")
-        echo "${UPDATED}" > "${RESULTS_FILE}"
+    local timestamp
+    timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+    if [ $exit_code -ne 0 ] || [ -z "${result}" ]; then
+        log "ERROR: Speed test failed"
+        local fail_entry
+        fail_entry=$(jq -n --arg ts "${timestamp}" \
+            '{timestamp:$ts, status:"error", download:null, upload:null, ping:null}')
+        local updated
+        updated=$(jq --argjson e "${fail_entry}" --argjson max "${max_results}" \
+            '. + [$e] | if length > $max then .[-($max):] else . end' "${RESULTS_FILE}")
+        echo "${updated}" > "${RESULTS_FILE}"
+        push_to_ha "" "" "" "error"
         return 1
     fi
 
-    log "Test complete: ${RESULT}"
-
-    # Parse result and append to JSON
-    UPDATED=$(echo "${RESULT}" | jq --argjson max "${MAX_RESULTS}" \
-        'if type == "object" then . else error end' 2>/dev/null)
-
-    if [ $? -ne 0 ]; then
-        log "ERROR: Invalid JSON from worker: ${RESULT}"
+    # Validate JSON
+    if ! echo "${result}" | jq -e . >/dev/null 2>&1; then
+        log "ERROR: Invalid JSON from worker"
         return 1
     fi
 
-    CURRENT=$(cat "${RESULTS_FILE}")
-    NEW_LIST=$(echo "${CURRENT}" | jq --argjson entry "${UPDATED}" --argjson max "${MAX_RESULTS}" \
-        '. + [$entry] | if length > $max then .[-($max):] else . end')
-    echo "${NEW_LIST}" > "${RESULTS_FILE}"
+    local download upload ping
+    download=$(echo "${result}" | jq -r '.download // "0"')
+    upload=$(echo "${result}" | jq -r '.upload // "0"')
+    ping=$(echo "${result}" | jq -r '.ping // "0"')
 
-    DOWNLOAD=$(echo "${UPDATED}" | jq -r '.download // "N/A"')
-    UPLOAD=$(echo "${UPDATED}" | jq -r '.upload // "N/A"')
-    PING=$(echo "${UPDATED}" | jq -r '.ping // "N/A"')
-    log "↓ Download: ${DOWNLOAD} Mbps  ↑ Upload: ${UPLOAD} Mbps  ◉ Ping: ${PING} ms"
+    log "↓ Download: ${download} Mbps  ↑ Upload: ${upload} Mbps  ◉ Ping: ${ping} ms"
+
+    # Save to results file
+    local updated
+    updated=$(jq --argjson e "${result}" --argjson max "${max_results}" \
+        '. + [$e] | if length > $max then .[-($max):] else . end' "${RESULTS_FILE}")
+    echo "${updated}" > "${RESULTS_FILE}"
+
+    # Push to Home Assistant
+    push_to_ha "${download}" "${upload}" "${ping}" "success"
 }
 
+# ---------------------------------------------------------------
 # Main loop
+# ---------------------------------------------------------------
+log "SpeedTest daemon starting..."
+
+if [ -z "${TOKEN}" ]; then
+    log "WARNING: SUPERVISOR_TOKEN is not set — HA entity updates will fail."
+    log "Ensure homeassistant_api: true is set in config.yaml"
+fi
+
 while true; do
     run_test
 
-    INTERVAL=$(jq -r '.test_interval_minutes' "${CONFIG_FILE}")
-    log "Next test in ${INTERVAL} minutes..."
-    sleep $(( INTERVAL * 60 ))
+    interval=$(jq -r '.test_interval_minutes' "${CONFIG_FILE}")
+    log "Next test in ${interval} minutes..."
+    sleep $(( interval * 60 ))
 done

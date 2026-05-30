@@ -1,9 +1,9 @@
 name: "OpenSpeedTest Monitor"
 description: "Run scheduled internet speed tests against your self-hosted OpenSpeedTest server and visualize results over time."
-version: "1.0.2"
+version: "1.1.0"
 slug: "openspeedtest_monitor"
 init: false
-homeassistant_api: false
+homeassistant_api: true
 hassio_api: false
 auth_api: false
 ingress: true
