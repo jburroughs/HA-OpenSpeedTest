@@ -6,18 +6,31 @@ DATA_DIR="/data/speedtest"
 CONFIG_FILE="${DATA_DIR}/config.json"
 RESULTS_FILE="${DATA_DIR}/results.json"
 
-# HA Supervisor injects SUPERVISOR_TOKEN into the container environment.
-# s6 services may run in a clean env, so also try reading from /proc/1/environ.
-if [ -z "${SUPERVISOR_TOKEN}" ] && [ -f /proc/1/environ ]; then
-    while IFS= read -r -d '' var; do
-        case "$var" in
-            SUPERVISOR_TOKEN=*) export "$var" ;;
-        esac
-    done < /proc/1/environ
-fi
+# HA Supervisor writes injected env vars as individual files under this path.
+# This is the most reliable way to read them regardless of base image or s6 version.
+S6_ENV_DIR="/run/s6/container_environment"
+
+resolve_token() {
+    # 1. Already in environment (some base images do pass it through)
+    if [ -n "${SUPERVISOR_TOKEN}" ]; then
+        echo "${SUPERVISOR_TOKEN}"
+        return
+    fi
+    # 2. s6 container_environment files (standard HA supervisor injection path)
+    if [ -f "${S6_ENV_DIR}/SUPERVISOR_TOKEN" ]; then
+        cat "${S6_ENV_DIR}/SUPERVISOR_TOKEN"
+        return
+    fi
+    # 3. Alternate path used by some HA base versions
+    if [ -f "/var/run/s6/container_environment/SUPERVISOR_TOKEN" ]; then
+        cat "/var/run/s6/container_environment/SUPERVISOR_TOKEN"
+        return
+    fi
+    echo ""
+}
 
 HA_URL="http://supervisor/core"
-TOKEN="${SUPERVISOR_TOKEN}"
+TOKEN="$(resolve_token)"
 
 log() { echo "[SpeedTest] $(date '+%Y-%m-%d %H:%M:%S') $*"; }
 
@@ -142,9 +155,14 @@ run_test() {
     local max_results
     max_results=$(jq -r '.max_results' "${CONFIG_FILE}")
 
-    local result exit_code
-    result=$(node /usr/bin/speedtest_worker.js "${speedtest_url}" 2>/dev/null)
+    local result worker_stderr exit_code
+    worker_stderr=$(mktemp)
+    result=$(node /usr/bin/speedtest_worker.js "${speedtest_url}" 2>"${worker_stderr}")
     exit_code=$?
+    if [ -s "${worker_stderr}" ]; then
+        log "Worker: $(cat "${worker_stderr}")"
+    fi
+    rm -f "${worker_stderr}"
 
     local timestamp
     timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
@@ -190,13 +208,12 @@ run_test() {
 # ---------------------------------------------------------------
 log "SpeedTest daemon starting..."
 log "HA URL: ${HA_URL}"
+log "s6 env dir contents: $(ls ${S6_ENV_DIR} 2>/dev/null | tr '\n' ' ' || echo '(not found)')"
 
 if [ -z "${TOKEN}" ]; then
-    log "WARNING: SUPERVISOR_TOKEN is empty — HA entity updates will fail."
-    log "  Check: homeassistant_api must be 'true' in config.yaml"
-    log "  /proc/1/environ keys: $(tr '\0' '\n' < /proc/1/environ 2>/dev/null | cut -d= -f1 | tr '\n' ' ')"
+    log "WARNING: SUPERVISOR_TOKEN could not be resolved — HA entity updates disabled."
 else
-    log "SUPERVISOR_TOKEN present (${#TOKEN} chars) — HA entity updates enabled"
+    log "SUPERVISOR_TOKEN resolved (${#TOKEN} chars) — HA entity updates enabled"
 fi
 
 while true; do

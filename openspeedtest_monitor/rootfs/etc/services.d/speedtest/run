@@ -1,16 +1,9 @@
 #!/usr/bin/env bash
-# s6 services run in a clean environment — explicitly source container env
-# so SUPERVISOR_TOKEN (injected by HA supervisor) is available.
-
-with_env() {
-    # Read environment from PID 1 (the container init process)
-    # This gives us SUPERVISOR_TOKEN and other HA-injected vars
-    if [ -f /proc/1/environ ]; then
-        while IFS= read -r -d '' var; do
-            export "$var" 2>/dev/null || true
-        done < /proc/1/environ
-    fi
-}
-
-with_env
+# Source s6 container environment files before exec so any env var
+# written by the HA supervisor (SUPERVISOR_TOKEN etc.) is available.
+if [ -d /run/s6/container_environment ]; then
+    for f in /run/s6/container_environment/*; do
+        [ -f "$f" ] && export "$(basename "$f")"="$(cat "$f")"
+    done
+fi
 exec /usr/bin/speedtest_runner.sh
