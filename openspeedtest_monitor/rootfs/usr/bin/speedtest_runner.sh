@@ -6,7 +6,16 @@ DATA_DIR="/data/speedtest"
 CONFIG_FILE="${DATA_DIR}/config.json"
 RESULTS_FILE="${DATA_DIR}/results.json"
 
-# HA Supervisor injects this token when homeassistant_api: true
+# HA Supervisor injects SUPERVISOR_TOKEN into the container environment.
+# s6 services may run in a clean env, so also try reading from /proc/1/environ.
+if [ -z "${SUPERVISOR_TOKEN}" ] && [ -f /proc/1/environ ]; then
+    while IFS= read -r -d '' var; do
+        case "$var" in
+            SUPERVISOR_TOKEN=*) export "$var" ;;
+        esac
+    done < /proc/1/environ
+fi
+
 HA_URL="http://supervisor/core"
 TOKEN="${SUPERVISOR_TOKEN}"
 
@@ -180,10 +189,14 @@ run_test() {
 # Main loop
 # ---------------------------------------------------------------
 log "SpeedTest daemon starting..."
+log "HA URL: ${HA_URL}"
 
 if [ -z "${TOKEN}" ]; then
-    log "WARNING: SUPERVISOR_TOKEN is not set — HA entity updates will fail."
-    log "Ensure homeassistant_api: true is set in config.yaml"
+    log "WARNING: SUPERVISOR_TOKEN is empty — HA entity updates will fail."
+    log "  Check: homeassistant_api must be 'true' in config.yaml"
+    log "  /proc/1/environ keys: $(tr '\0' '\n' < /proc/1/environ 2>/dev/null | cut -d= -f1 | tr '\n' ' ')"
+else
+    log "SUPERVISOR_TOKEN present (${#TOKEN} chars) — HA entity updates enabled"
 fi
 
 while true; do
