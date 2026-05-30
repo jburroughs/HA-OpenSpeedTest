@@ -1,0 +1,758 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SpeedTest Monitor</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;600;700&family=Syne:wght@400;700;800&display=swap');
+
+  :root {
+    --bg: #080c10;
+    --surface: #0d1117;
+    --surface2: #161b22;
+    --border: #21262d;
+    --dl: #00e5a0;
+    --ul: #3d9bff;
+    --ping: #ff9f43;
+    --error: #ff4757;
+    --text: #e6edf3;
+    --muted: #7d8590;
+    --glow-dl: rgba(0, 229, 160, 0.15);
+    --glow-ul: rgba(61, 155, 255, 0.15);
+    --glow-ping: rgba(255, 159, 67, 0.15);
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'JetBrains Mono', monospace;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* Animated grid background */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image:
+      linear-gradient(rgba(0,229,160,0.03) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(0,229,160,0.03) 1px, transparent 1px);
+    background-size: 40px 40px;
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  .app {
+    position: relative;
+    z-index: 1;
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: 24px;
+  }
+
+  /* HEADER */
+  header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 32px;
+    padding-bottom: 20px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .logo-area {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+  }
+
+  .logo-icon {
+    width: 44px; height: 44px;
+    background: linear-gradient(135deg, var(--dl), #00b37a);
+    border-radius: 10px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 22px;
+    box-shadow: 0 0 20px var(--glow-dl);
+    animation: pulse-glow 3s ease-in-out infinite;
+  }
+
+  @keyframes pulse-glow {
+    0%, 100% { box-shadow: 0 0 20px var(--glow-dl); }
+    50% { box-shadow: 0 0 35px rgba(0,229,160,0.35); }
+  }
+
+  .logo-text { font-family: 'Syne', sans-serif; }
+  .logo-text h1 { font-size: 20px; font-weight: 800; letter-spacing: -0.5px; }
+  .logo-text p { font-size: 11px; color: var(--muted); font-weight: 300; margin-top: 2px; }
+
+  .status-pill {
+    display: flex; align-items: center; gap: 8px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    padding: 8px 16px;
+    font-size: 12px;
+  }
+
+  .status-dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: var(--dl);
+    box-shadow: 0 0 8px var(--dl);
+    animation: blink 2s ease-in-out infinite;
+  }
+
+  .status-dot.idle { background: var(--muted); box-shadow: none; animation: none; }
+  .status-dot.error { background: var(--error); box-shadow: 0 0 8px var(--error); }
+
+  @keyframes blink {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.3; }
+  }
+
+  /* STAT CARDS */
+  .stat-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 16px;
+    margin-bottom: 28px;
+  }
+
+  @media (max-width: 720px) { .stat-grid { grid-template-columns: 1fr; } }
+
+  .stat-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 20px 24px;
+    position: relative;
+    overflow: hidden;
+    transition: border-color 0.2s;
+  }
+
+  .stat-card::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 2px;
+  }
+
+  .stat-card.dl::before { background: linear-gradient(90deg, transparent, var(--dl), transparent); }
+  .stat-card.ul::before { background: linear-gradient(90deg, transparent, var(--ul), transparent); }
+  .stat-card.ping::before { background: linear-gradient(90deg, transparent, var(--ping), transparent); }
+
+  .stat-card:hover { border-color: rgba(255,255,255,0.12); }
+
+  .stat-label {
+    font-size: 11px;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    margin-bottom: 10px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .stat-label span { font-size: 14px; }
+
+  .stat-value {
+    font-family: 'Syne', sans-serif;
+    font-size: 38px;
+    font-weight: 800;
+    line-height: 1;
+    letter-spacing: -1px;
+  }
+
+  .stat-card.dl .stat-value { color: var(--dl); }
+  .stat-card.ul .stat-value { color: var(--ul); }
+  .stat-card.ping .stat-value { color: var(--ping); }
+
+  .stat-unit {
+    font-size: 13px;
+    color: var(--muted);
+    margin-top: 6px;
+    font-weight: 300;
+  }
+
+  .stat-delta {
+    position: absolute;
+    top: 20px; right: 20px;
+    font-size: 11px;
+    padding: 3px 8px;
+    border-radius: 4px;
+    font-weight: 600;
+  }
+
+  .delta-up { background: rgba(0,229,160,0.15); color: var(--dl); }
+  .delta-down { background: rgba(255,71,87,0.15); color: var(--error); }
+  .delta-flat { background: rgba(125,133,144,0.15); color: var(--muted); }
+
+  /* CHARTS */
+  .chart-section {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 24px;
+    margin-bottom: 20px;
+  }
+
+  .chart-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 20px;
+  }
+
+  .chart-title {
+    font-family: 'Syne', sans-serif;
+    font-size: 15px;
+    font-weight: 700;
+  }
+
+  .chart-filters {
+    display: flex;
+    gap: 6px;
+  }
+
+  .filter-btn {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--muted);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    padding: 5px 10px;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+
+  .filter-btn.active, .filter-btn:hover {
+    background: rgba(0,229,160,0.1);
+    border-color: var(--dl);
+    color: var(--dl);
+  }
+
+  .chart-container { position: relative; height: 220px; }
+
+  /* HISTORY TABLE */
+  .table-section {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    overflow: hidden;
+  }
+
+  .table-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 18px 24px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .table-title {
+    font-family: 'Syne', sans-serif;
+    font-size: 15px;
+    font-weight: 700;
+  }
+
+  .table-count {
+    font-size: 12px;
+    color: var(--muted);
+    background: var(--surface2);
+    padding: 3px 10px;
+    border-radius: 10px;
+  }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+  }
+
+  th {
+    text-align: left;
+    padding: 10px 24px;
+    color: var(--muted);
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 1.2px;
+    font-weight: 600;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface2);
+  }
+
+  td {
+    padding: 12px 24px;
+    border-bottom: 1px solid rgba(33,38,45,0.5);
+    transition: background 0.1s;
+  }
+
+  tr:last-child td { border-bottom: none; }
+  tr:hover td { background: rgba(255,255,255,0.02); }
+
+  .td-time { color: var(--muted); font-size: 11px; }
+  .td-dl { color: var(--dl); font-weight: 600; }
+  .td-ul { color: var(--ul); font-weight: 600; }
+  .td-ping { color: var(--ping); font-weight: 600; }
+
+  .badge-success {
+    background: rgba(0,229,160,0.12);
+    color: var(--dl);
+    font-size: 10px;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-weight: 600;
+  }
+
+  .badge-error {
+    background: rgba(255,71,87,0.12);
+    color: var(--error);
+    font-size: 10px;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-weight: 600;
+  }
+
+  /* LOADING */
+  .loading {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 60px;
+    color: var(--muted);
+    gap: 16px;
+  }
+
+  .spinner {
+    width: 36px; height: 36px;
+    border: 2px solid var(--border);
+    border-top-color: var(--dl);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* EMPTY */
+  .empty {
+    text-align: center;
+    padding: 60px;
+    color: var(--muted);
+  }
+  .empty-icon { font-size: 40px; margin-bottom: 12px; opacity: 0.4; }
+  .empty-msg { font-size: 13px; }
+
+  /* MINI SPARKLINE BAR */
+  .bar-bg { background: var(--border); border-radius: 2px; height: 4px; width: 80px; display: inline-block; vertical-align: middle; margin-left: 8px; }
+  .bar-fill { height: 100%; border-radius: 2px; }
+
+  /* REFRESH BUTTON */
+  .refresh-btn {
+    background: rgba(0,229,160,0.1);
+    border: 1px solid rgba(0,229,160,0.3);
+    border-radius: 8px;
+    color: var(--dl);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    padding: 8px 14px;
+    cursor: pointer;
+    transition: all 0.15s;
+    display: flex; align-items: center; gap: 6px;
+  }
+
+  .refresh-btn:hover { background: rgba(0,229,160,0.2); }
+  .refresh-btn:active { transform: scale(0.97); }
+
+  .next-test {
+    font-size: 11px;
+    color: var(--muted);
+    display: flex; align-items: center; gap: 6px;
+  }
+
+  .footer-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 0 0;
+    border-top: 1px solid var(--border);
+    margin-top: 24px;
+  }
+
+  .server-badge {
+    font-size: 11px;
+    color: var(--muted);
+    display: flex; align-items: center; gap: 6px;
+  }
+
+  .server-url { color: var(--dl); font-size: 11px; }
+</style>
+</head>
+<body>
+<div class="app">
+
+  <header>
+    <div class="logo-area">
+      <div class="logo-icon">⚡</div>
+      <div class="logo-text">
+        <h1>SpeedTest Monitor</h1>
+        <p>Self-Hosted OpenSpeedTest · Home Assistant Addon</p>
+      </div>
+    </div>
+    <div style="display:flex;align-items:center;gap:12px;">
+      <button class="refresh-btn" onclick="loadData()">↻ Refresh</button>
+      <div class="status-pill">
+        <div class="status-dot idle" id="statusDot"></div>
+        <span id="statusText">Loading...</span>
+      </div>
+    </div>
+  </header>
+
+  <!-- STAT CARDS -->
+  <div class="stat-grid">
+    <div class="stat-card dl">
+      <div class="stat-label"><span>↓</span> Download</div>
+      <div class="stat-value" id="dlVal">—</div>
+      <div class="stat-unit">Mbps</div>
+      <div class="stat-delta delta-flat" id="dlDelta">—</div>
+    </div>
+    <div class="stat-card ul">
+      <div class="stat-label"><span>↑</span> Upload</div>
+      <div class="stat-value" id="ulVal">—</div>
+      <div class="stat-unit">Mbps</div>
+      <div class="stat-delta delta-flat" id="ulDelta">—</div>
+    </div>
+    <div class="stat-card ping">
+      <div class="stat-label"><span>◉</span> Ping</div>
+      <div class="stat-value" id="pingVal">—</div>
+      <div class="stat-unit">ms</div>
+      <div class="stat-delta delta-flat" id="pingDelta">—</div>
+    </div>
+  </div>
+
+  <!-- MAIN CHART -->
+  <div class="chart-section">
+    <div class="chart-header">
+      <div class="chart-title">Throughput History</div>
+      <div class="chart-filters">
+        <button class="filter-btn active" onclick="setRange(10, this)">Last 10</button>
+        <button class="filter-btn" onclick="setRange(25, this)">25</button>
+        <button class="filter-btn" onclick="setRange(50, this)">50</button>
+        <button class="filter-btn" onclick="setRange(0, this)">All</button>
+      </div>
+    </div>
+    <div class="chart-container">
+      <canvas id="throughputChart"></canvas>
+    </div>
+  </div>
+
+  <!-- PING CHART -->
+  <div class="chart-section">
+    <div class="chart-header">
+      <div class="chart-title">Ping / Latency</div>
+      <div style="font-size:11px;color:var(--muted);">Lower is better</div>
+    </div>
+    <div class="chart-container" style="height:140px;">
+      <canvas id="pingChart"></canvas>
+    </div>
+  </div>
+
+  <!-- HISTORY TABLE -->
+  <div class="table-section">
+    <div class="table-header">
+      <div class="table-title">Test History</div>
+      <div class="table-count" id="resultCount">0 results</div>
+    </div>
+    <div id="tableBody">
+      <div class="loading"><div class="spinner"></div><span>Loading results...</span></div>
+    </div>
+  </div>
+
+  <div class="footer-bar">
+    <div class="server-badge">
+      ◉ Server: <span class="server-url" id="serverUrl">—</span>
+    </div>
+    <div class="next-test" id="nextTest">Next test: —</div>
+  </div>
+
+</div>
+
+<script>
+let allResults = [];
+let config = {};
+let throughputChart = null;
+let pingChart = null;
+let currentRange = 10;
+
+const fmtTime = ts => {
+  const d = new Date(ts);
+  return d.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+};
+
+const fmtShort = ts => {
+  const d = new Date(ts);
+  return d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+};
+
+function delta(current, previous, invert = false) {
+  if (current == null || previous == null) return null;
+  const pct = ((current - previous) / previous * 100).toFixed(1);
+  const up = invert ? pct < 0 : pct > 0;
+  const cls = Math.abs(pct) < 1 ? 'delta-flat' : (up ? 'delta-up' : 'delta-down');
+  const sign = pct > 0 ? '+' : '';
+  return { cls, text: `${sign}${pct}%` };
+}
+
+function setDelta(elId, d) {
+  const el = document.getElementById(elId);
+  if (!d) { el.textContent = '—'; el.className = 'stat-delta delta-flat'; return; }
+  el.textContent = d.text;
+  el.className = 'stat-delta ' + d.cls;
+}
+
+function buildCharts(data) {
+  const labels = data.map(r => fmtShort(r.timestamp));
+  const dlData = data.map(r => r.download);
+  const ulData = data.map(r => r.upload);
+  const pingData = data.map(r => r.ping);
+
+  const gridColor = 'rgba(33,38,45,0.8)';
+  const tickColor = '#7d8590';
+
+  const baseOpts = {
+    responsive: true, maintainAspectRatio: false,
+    animation: { duration: 400 },
+    plugins: { legend: { display: false }, tooltip: {
+      backgroundColor: '#161b22',
+      borderColor: '#21262d',
+      borderWidth: 1,
+      titleColor: '#7d8590',
+      bodyColor: '#e6edf3',
+      titleFont: { family: 'JetBrains Mono', size: 11 },
+      bodyFont: { family: 'JetBrains Mono', size: 12, weight: '600' },
+      padding: 10,
+      callbacks: {
+        label: ctx => {
+          const u = ctx.dataset.label === 'Ping' ? ' ms' : ' Mbps';
+          return ` ${ctx.parsed.y}${u}`;
+        }
+      }
+    }},
+    scales: {
+      x: {
+        grid: { color: gridColor },
+        ticks: { color: tickColor, font: { family: 'JetBrains Mono', size: 10 }, maxTicksLimit: 8 }
+      },
+      y: {
+        grid: { color: gridColor },
+        ticks: { color: tickColor, font: { family: 'JetBrains Mono', size: 10 } },
+        beginAtZero: true
+      }
+    }
+  };
+
+  // Throughput chart
+  if (throughputChart) throughputChart.destroy();
+  throughputChart = new Chart(document.getElementById('throughputChart'), {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [
+        {
+          label: 'Download',
+          data: dlData,
+          borderColor: '#00e5a0',
+          backgroundColor: 'rgba(0,229,160,0.06)',
+          borderWidth: 2,
+          pointRadius: 3,
+          pointBackgroundColor: '#00e5a0',
+          pointBorderWidth: 0,
+          tension: 0.3,
+          fill: true
+        },
+        {
+          label: 'Upload',
+          data: ulData,
+          borderColor: '#3d9bff',
+          backgroundColor: 'rgba(61,155,255,0.06)',
+          borderWidth: 2,
+          pointRadius: 3,
+          pointBackgroundColor: '#3d9bff',
+          pointBorderWidth: 0,
+          tension: 0.3,
+          fill: true
+        }
+      ]
+    },
+    options: {
+      ...baseOpts,
+      plugins: {
+        ...baseOpts.plugins,
+        legend: {
+          display: true,
+          position: 'top',
+          align: 'end',
+          labels: { color: '#7d8590', font: { family: 'JetBrains Mono', size: 11 }, boxWidth: 12, padding: 16 }
+        }
+      }
+    }
+  });
+
+  // Ping chart
+  if (pingChart) pingChart.destroy();
+  pingChart = new Chart(document.getElementById('pingChart'), {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [{
+        label: 'Ping',
+        data: pingData,
+        backgroundColor: 'rgba(255,159,67,0.35)',
+        borderColor: '#ff9f43',
+        borderWidth: 1,
+        borderRadius: 3
+      }]
+    },
+    options: baseOpts
+  });
+}
+
+function buildTable(results) {
+  const tbody = document.getElementById('tableBody');
+  if (!results.length) {
+    tbody.innerHTML = `<div class="empty"><div class="empty-icon">📡</div><div class="empty-msg">No results yet. The first test will run shortly.</div></div>`;
+    return;
+  }
+
+  const maxDl = Math.max(...results.filter(r=>r.download).map(r=>r.download));
+  const maxUl = Math.max(...results.filter(r=>r.upload).map(r=>r.upload));
+
+  const rows = [...results].reverse().slice(0, 100).map(r => {
+    if (r.status === 'error') return `
+      <tr>
+        <td class="td-time">${fmtTime(r.timestamp)}</td>
+        <td colspan="3" style="color:var(--error);font-size:11px;">${r.error || 'Test failed'}</td>
+        <td><span class="badge-error">ERROR</span></td>
+      </tr>`;
+
+    const dlPct = r.download && maxDl ? (r.download / maxDl * 100).toFixed(0) : 0;
+    const ulPct = r.upload && maxUl ? (r.upload / maxUl * 100).toFixed(0) : 0;
+
+    return `
+      <tr>
+        <td class="td-time">${fmtTime(r.timestamp)}</td>
+        <td class="td-dl">
+          ${r.download != null ? r.download : '—'}
+          <span class="bar-bg"><span class="bar-fill" style="width:${dlPct}%;background:var(--dl)"></span></span>
+        </td>
+        <td class="td-ul">
+          ${r.upload != null ? r.upload : '—'}
+          <span class="bar-bg"><span class="bar-fill" style="width:${ulPct}%;background:var(--ul)"></span></span>
+        </td>
+        <td class="td-ping">${r.ping != null ? r.ping : '—'}</td>
+        <td><span class="badge-success">OK</span></td>
+      </tr>`;
+  }).join('');
+
+  tbody.innerHTML = `
+    <table>
+      <thead>
+        <tr>
+          <th>Timestamp</th>
+          <th>↓ Download (Mbps)</th>
+          <th>↑ Upload (Mbps)</th>
+          <th>◉ Ping (ms)</th>
+          <th>Status</th>
+        </tr>
+      </thead>
+      <tbody>${rows}</tbody>
+    </table>`;
+}
+
+function setRange(n, btn) {
+  currentRange = n;
+  document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  renderCharts();
+}
+
+function renderCharts() {
+  const success = allResults.filter(r => r.status === 'success');
+  const slice = currentRange > 0 ? success.slice(-currentRange) : success;
+  buildCharts(slice);
+}
+
+async function loadData() {
+  try {
+    // Load config
+    const cfgRes = await fetch('/api/config');
+    if (cfgRes.ok) {
+      config = await cfgRes.json();
+      document.getElementById('serverUrl').textContent = config.openspeedtest_url || '—';
+    }
+
+    // Load results
+    const res = await fetch('/api/results?' + Date.now());
+    if (!res.ok) throw new Error('Failed to fetch');
+    allResults = await res.json();
+
+    const success = allResults.filter(r => r.status === 'success');
+    document.getElementById('resultCount').textContent = `${allResults.length} result${allResults.length !== 1 ? 's' : ''}`;
+
+    // Update stat cards
+    if (success.length > 0) {
+      const last = success[success.length - 1];
+      const prev = success.length > 1 ? success[success.length - 2] : null;
+
+      document.getElementById('dlVal').textContent = last.download != null ? last.download : '—';
+      document.getElementById('ulVal').textContent = last.upload != null ? last.upload : '—';
+      document.getElementById('pingVal').textContent = last.ping != null ? last.ping : '—';
+
+      if (prev) {
+        setDelta('dlDelta', delta(last.download, prev.download));
+        setDelta('ulDelta', delta(last.upload, prev.upload));
+        setDelta('pingDelta', delta(last.ping, prev.ping, true));
+      }
+
+      // Status
+      const dot = document.getElementById('statusDot');
+      const txt = document.getElementById('statusText');
+      const age = Date.now() - new Date(last.timestamp).getTime();
+      const mins = Math.round(age / 60000);
+      dot.className = 'status-dot';
+      txt.textContent = `Last test ${mins < 1 ? 'just now' : mins + 'm ago'}`;
+
+      // Next test countdown
+      if (config.test_interval_minutes) {
+        const nextMs = new Date(last.timestamp).getTime() + config.test_interval_minutes * 60000;
+        const remaining = Math.max(0, Math.round((nextMs - Date.now()) / 60000));
+        document.getElementById('nextTest').textContent = `Next test: ~${remaining}m`;
+      }
+    } else {
+      document.getElementById('statusDot').className = 'status-dot idle';
+      document.getElementById('statusText').textContent = 'No tests run yet';
+    }
+
+    renderCharts();
+    buildTable(allResults);
+
+  } catch(e) {
+    document.getElementById('statusDot').className = 'status-dot error';
+    document.getElementById('statusText').textContent = 'Load error';
+    console.error(e);
+  }
+}
+
+// Initial load + auto-refresh every 60s
+loadData();
+setInterval(loadData, 60000);
+</script>
+</body>
+</html>
