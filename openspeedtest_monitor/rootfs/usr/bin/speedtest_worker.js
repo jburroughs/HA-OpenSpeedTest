@@ -25,6 +25,10 @@ const PARALLEL_STREAMS = 6;
 const WARMUP_MS = 1500;
 const TEST_DURATION_MS = 10000;
 const CHUNK_SIZE = 1024 * 1024; // 1MB chunks for upload
+const GARBAGE_CK_SIZE_MB = 25;  // 25MB per chunk — large enough that HTTP/TCP
+                                 // overhead is negligible, small enough that
+                                 // even modest connections complete multiple
+                                 // chunks within the test window
 
 function parseTarget(base) {
     const url = new URL('/', base);
@@ -39,8 +43,9 @@ function parseTarget(base) {
 function findEndpoint(target, candidates, method) {
     return new Promise((resolve) => {
         let i = 0;
+        let fallback = null;
         const tryNext = () => {
-            if (i >= candidates.length) return resolve('/');
+            if (i >= candidates.length) return resolve(fallback || '/');
             const path = candidates[i++];
             const req = target.lib.request({
                 hostname: target.hostname,
@@ -49,15 +54,29 @@ function findEndpoint(target, candidates, method) {
                 path,
                 method,
                 headers: method === 'POST'
-                    ? { 'Content-Length': '0' }
+                    ? { 'Content-Type': 'application/octet-stream', 'Content-Length': '1024' }
                     : {}
             }, (res) => {
-                res.resume();
-                if (res.statusCode < 400) resolve(path);
-                else tryNext();
+                let bytes = 0;
+                res.on('data', (chunk) => { bytes += chunk.length; });
+                res.on('end', () => {
+                    if (res.statusCode >= 400) return tryNext();
+                    // Remember the first endpoint that at least responds OK,
+                    // as a last-resort fallback if nothing better is found.
+                    if (fallback === null) fallback = path;
+                    // For GET (download) endpoints, require a real payload —
+                    // OpenSpeedTest's garbage endpoints stream megabytes;
+                    // a few hundred bytes means we hit a static page, not the
+                    // actual test endpoint, and would silently wreck the
+                    // throughput measurement if accepted.
+                    if (method === 'GET' && bytes < 50000) return tryNext();
+                    resolve(path);
+                });
+                res.on('error', tryNext);
             });
+            if (method === 'POST') req.write(Buffer.alloc(1024));
             req.on('error', tryNext);
-            req.setTimeout(3000, () => { req.destroy(); tryNext(); });
+            req.setTimeout(4000, () => { req.destroy(); tryNext(); });
             req.end();
         };
         tryNext();
@@ -111,11 +130,12 @@ async function measureDownload(target, path) {
     const runStream = () => new Promise((resolve) => {
         const fetchOnce = () => {
             if (Date.now() >= endAt) return resolve();
+            const sep = path.includes('?') ? '&' : '?';
             const req = target.lib.request({
                 hostname: target.hostname,
                 port: target.port,
                 protocol: target.protocol,
-                path: path + '?r=' + Math.random() + '&n=' + Date.now(),
+                path: path + sep + 'r=' + Math.random() + '&n=' + Date.now(),
                 method: 'GET',
                 headers: { 'Cache-Control': 'no-cache', 'Connection': 'keep-alive' }
             }, (res) => {
@@ -160,11 +180,12 @@ async function measureUpload(target, path) {
         const sendOnce = () => {
             if (Date.now() >= endAt) return resolve();
             const startedDuringMeasure = Date.now() >= measureStart;
+            const sep = path.includes('?') ? '&' : '?';
             const req = target.lib.request({
                 hostname: target.hostname,
                 port: target.port,
                 protocol: target.protocol,
-                path: path + '?r=' + Math.random(),
+                path: path + sep + 'r=' + Math.random(),
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/octet-stream',
@@ -240,11 +261,26 @@ async function main() {
         process.stderr.write('Locating download endpoint...\n');
         const downloadPath = await findEndpoint(
             target,
-            ['/garbage.php', '/backend/garbage.php', '/', '/index.html'],
+            [
+                `/garbage.php?ckSize=${GARBAGE_CK_SIZE_MB}`,
+                `/backend/garbage.php?ckSize=${GARBAGE_CK_SIZE_MB}`,
+                '/garbage.php',
+                '/backend/garbage.php',
+                '/',
+                '/index.html'
+            ],
             'GET'
         );
 
         process.stderr.write(`Measuring download via ${downloadPath} (${PARALLEL_STREAMS} streams)...\n`);
+        if (downloadPath === '/' || downloadPath === '/index.html') {
+            process.stderr.write(
+                `WARNING: No garbage-data endpoint found on this server — falling back to ` +
+                `the index page. Download numbers will be inaccurate (much lower than real ` +
+                `throughput) because each request only transfers a tiny page. Verify this ` +
+                `OpenSpeedTest server exposes /garbage.php.\n`
+            );
+        }
         const download = await measureDownload(target, downloadPath);
 
         process.stderr.write('Locating upload endpoint...\n');
