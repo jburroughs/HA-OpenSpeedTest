@@ -1,6 +1,6 @@
 name: "OpenSpeedTest Monitor"
 description: "Run scheduled internet speed tests against any reachable OpenSpeedTest server — whether it's running locally or as a Docker container on another machine on your network — and visualize results over time."
-version: "1.8.0"
+version: "1.9.0"
 slug: "openspeedtest_monitor"
 init: false
 homeassistant_api: true

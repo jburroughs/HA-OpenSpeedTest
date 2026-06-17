@@ -696,13 +696,13 @@ function renderCharts() {
 
 async function loadData() {
   try {
-    const cfgRes = await fetch('/api/config.json');
+    const cfgRes = await fetch('api/config.json');
     if (cfgRes.ok) {
       config = await cfgRes.json();
       document.getElementById('serverUrl').textContent = config.openspeedtest_url || '—';
     }
 
-    const res = await fetch('/api/results.json?' + Date.now());
+    const res = await fetch('api/results.json?' + Date.now());
     if (!res.ok) throw new Error('Results not ready yet (HTTP ' + res.status + ')');
     const text = await res.text();
     allResults = text.trim() ? JSON.parse(text) : [];
@@ -746,7 +746,9 @@ async function loadData() {
 
   } catch(e) {
     document.getElementById('statusDot').className = 'status-dot error';
-    document.getElementById('statusText').textContent = 'Load error';
+    document.getElementById('statusText').textContent = 'Load error: ' + e.message;
+    document.getElementById('tableBody').innerHTML =
+      `<div class="empty"><div class="empty-icon">⚠</div><div class="empty-msg">Failed to load data: ${e.message}<br><span style="font-size:10px;opacity:0.7;">Check the addon log for details.</span></div></div>`;
     console.error(e);
   }
 }
