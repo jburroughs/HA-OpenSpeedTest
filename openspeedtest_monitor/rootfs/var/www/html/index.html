@@ -20,8 +20,6 @@
     --text: #e6edf3;
     --muted: #7d8590;
     --glow-dl: rgba(0, 229, 160, 0.15);
-    --glow-ul: rgba(61, 155, 255, 0.15);
-    --glow-ping: rgba(255, 159, 67, 0.15);
   }
 
   * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -34,7 +32,6 @@
     overflow-x: hidden;
   }
 
-  /* Animated grid background */
   body::before {
     content: '';
     position: fixed;
@@ -55,7 +52,6 @@
     padding: 24px;
   }
 
-  /* HEADER */
   header {
     display: flex;
     align-items: center;
@@ -65,11 +61,7 @@
     border-bottom: 1px solid var(--border);
   }
 
-  .logo-area {
-    display: flex;
-    align-items: center;
-    gap: 14px;
-  }
+  .logo-area { display: flex; align-items: center; gap: 14px; }
 
   .logo-icon {
     width: 44px; height: 44px;
@@ -110,12 +102,8 @@
   .status-dot.idle { background: var(--muted); box-shadow: none; animation: none; }
   .status-dot.error { background: var(--error); box-shadow: 0 0 8px var(--error); }
 
-  @keyframes blink {
-    0%, 100% { opacity: 1; }
-    50% { opacity: 0.3; }
-  }
+  @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
 
-  /* STAT CARDS */
   .stat-grid {
     display: grid;
     grid-template-columns: repeat(3, 1fr);
@@ -173,12 +161,7 @@
   .stat-card.ul .stat-value { color: var(--ul); }
   .stat-card.ping .stat-value { color: var(--ping); }
 
-  .stat-unit {
-    font-size: 13px;
-    color: var(--muted);
-    margin-top: 6px;
-    font-weight: 300;
-  }
+  .stat-unit { font-size: 13px; color: var(--muted); margin-top: 6px; font-weight: 300; }
 
   .stat-delta {
     position: absolute;
@@ -193,7 +176,6 @@
   .delta-down { background: rgba(255,71,87,0.15); color: var(--error); }
   .delta-flat { background: rgba(125,133,144,0.15); color: var(--muted); }
 
-  /* CHARTS */
   .chart-section {
     background: var(--surface);
     border: 1px solid var(--border);
@@ -209,16 +191,9 @@
     margin-bottom: 20px;
   }
 
-  .chart-title {
-    font-family: 'Syne', sans-serif;
-    font-size: 15px;
-    font-weight: 700;
-  }
+  .chart-title { font-family: 'Syne', sans-serif; font-size: 15px; font-weight: 700; }
 
-  .chart-filters {
-    display: flex;
-    gap: 6px;
-  }
+  .chart-filters { display: flex; gap: 6px; }
 
   .filter-btn {
     background: var(--surface2);
@@ -240,7 +215,6 @@
 
   .chart-container { position: relative; height: 220px; }
 
-  /* HISTORY TABLE */
   .table-section {
     background: var(--surface);
     border: 1px solid var(--border);
@@ -256,11 +230,7 @@
     border-bottom: 1px solid var(--border);
   }
 
-  .table-title {
-    font-family: 'Syne', sans-serif;
-    font-size: 15px;
-    font-weight: 700;
-  }
+  .table-title { font-family: 'Syne', sans-serif; font-size: 15px; font-weight: 700; }
 
   .table-count {
     font-size: 12px;
@@ -270,11 +240,7 @@
     border-radius: 10px;
   }
 
-  table {
-    width: 100%;
-    border-collapse: collapse;
-    font-size: 12px;
-  }
+  table { width: 100%; border-collapse: collapse; font-size: 12px; }
 
   th {
     text-align: left;
@@ -302,25 +268,9 @@
   .td-ul { color: var(--ul); font-weight: 600; }
   .td-ping { color: var(--ping); font-weight: 600; }
 
-  .badge-success {
-    background: rgba(0,229,160,0.12);
-    color: var(--dl);
-    font-size: 10px;
-    padding: 2px 8px;
-    border-radius: 4px;
-    font-weight: 600;
-  }
+  .badge-success { background: rgba(0,229,160,0.12); color: var(--dl); font-size: 10px; padding: 2px 8px; border-radius: 4px; font-weight: 600; }
+  .badge-error { background: rgba(255,71,87,0.12); color: var(--error); font-size: 10px; padding: 2px 8px; border-radius: 4px; font-weight: 600; }
 
-  .badge-error {
-    background: rgba(255,71,87,0.12);
-    color: var(--error);
-    font-size: 10px;
-    padding: 2px 8px;
-    border-radius: 4px;
-    font-weight: 600;
-  }
-
-  /* LOADING */
   .loading {
     display: flex;
     flex-direction: column;
@@ -341,20 +291,13 @@
 
   @keyframes spin { to { transform: rotate(360deg); } }
 
-  /* EMPTY */
-  .empty {
-    text-align: center;
-    padding: 60px;
-    color: var(--muted);
-  }
+  .empty { text-align: center; padding: 60px; color: var(--muted); }
   .empty-icon { font-size: 40px; margin-bottom: 12px; opacity: 0.4; }
   .empty-msg { font-size: 13px; }
 
-  /* MINI SPARKLINE BAR */
   .bar-bg { background: var(--border); border-radius: 2px; height: 4px; width: 80px; display: inline-block; vertical-align: middle; margin-left: 8px; }
   .bar-fill { height: 100%; border-radius: 2px; }
 
-  /* REFRESH BUTTON */
   .refresh-btn {
     background: rgba(0,229,160,0.1);
     border: 1px solid rgba(0,229,160,0.3);
@@ -371,11 +314,7 @@
   .refresh-btn:hover { background: rgba(0,229,160,0.2); }
   .refresh-btn:active { transform: scale(0.97); }
 
-  .next-test {
-    font-size: 11px;
-    color: var(--muted);
-    display: flex; align-items: center; gap: 6px;
-  }
+  .next-test { font-size: 11px; color: var(--muted); display: flex; align-items: center; gap: 6px; }
 
   .footer-bar {
     display: flex;
@@ -386,15 +325,9 @@
     margin-top: 24px;
   }
 
-  .server-badge {
-    font-size: 11px;
-    color: var(--muted);
-    display: flex; align-items: center; gap: 6px;
-  }
-
+  .server-badge { font-size: 11px; color: var(--muted); display: flex; align-items: center; gap: 6px; }
   .server-url { color: var(--dl); font-size: 11px; }
 
-  /* ENTITY CHIPS */
   .entity-chip {
     display: flex;
     align-items: center;
@@ -408,18 +341,24 @@
   .entity-chip.ul { border-left: 2px solid var(--ul); }
   .entity-chip.ping { border-left: 2px solid var(--ping); }
   .entity-chip.muted { border-left: 2px solid var(--muted); }
-  .entity-icon {
-    font-size: 16px;
-    width: 24px;
-    text-align: center;
-    flex-shrink: 0;
-    color: var(--muted);
-  }
+  .entity-icon { font-size: 16px; width: 24px; text-align: center; flex-shrink: 0; color: var(--muted); }
   .entity-chip.dl .entity-icon { color: var(--dl); }
   .entity-chip.ul .entity-icon { color: var(--ul); }
   .entity-chip.ping .entity-icon { color: var(--ping); }
   .entity-name { font-size: 12px; font-weight: 600; margin-bottom: 2px; }
   .entity-id { font-size: 10px; color: var(--muted); font-family: 'JetBrains Mono', monospace; }
+
+  .net-note {
+    font-size: 11px;
+    color: var(--muted);
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 14px;
+    margin-bottom: 20px;
+    line-height: 1.5;
+  }
+  .net-note strong { color: var(--text); }
 </style>
 </head>
 <body>
@@ -442,7 +381,6 @@
     </div>
   </header>
 
-  <!-- STAT CARDS -->
   <div class="stat-grid">
     <div class="stat-card dl">
       <div class="stat-label"><span>↓</span> Download</div>
@@ -464,7 +402,6 @@
     </div>
   </div>
 
-  <!-- MAIN CHART -->
   <div class="chart-section">
     <div class="chart-header">
       <div class="chart-title">Throughput History</div>
@@ -480,7 +417,6 @@
     </div>
   </div>
 
-  <!-- PING CHART -->
   <div class="chart-section">
     <div class="chart-header">
       <div class="chart-title">Ping / Latency</div>
@@ -491,7 +427,6 @@
     </div>
   </div>
 
-  <!-- HISTORY TABLE -->
   <div class="table-section">
     <div class="table-header">
       <div class="table-title">Test History</div>
@@ -503,7 +438,7 @@
   </div>
 
   <!-- HA ENTITIES INFO -->
-  <div class="chart-section" style="margin-bottom:20px;">
+  <div class="chart-section" style="margin-top:20px;">
     <div class="chart-header" style="margin-bottom:14px;">
       <div class="chart-title">Home Assistant Entities</div>
       <div style="font-size:11px;color:var(--muted);">Auto-created after each test</div>
@@ -630,7 +565,6 @@ function buildCharts(data) {
     }
   };
 
-  // Throughput chart
   if (throughputChart) throughputChart.destroy();
   throughputChart = new Chart(document.getElementById('throughputChart'), {
     type: 'line',
@@ -677,7 +611,6 @@ function buildCharts(data) {
     }
   });
 
-  // Ping chart
   if (pingChart) pingChart.destroy();
   pingChart = new Chart(document.getElementById('pingChart'), {
     type: 'bar',
@@ -763,14 +696,12 @@ function renderCharts() {
 
 async function loadData() {
   try {
-    // Load config
     const cfgRes = await fetch('/api/config.json');
     if (cfgRes.ok) {
       config = await cfgRes.json();
       document.getElementById('serverUrl').textContent = config.openspeedtest_url || '—';
     }
 
-    // Load results
     const res = await fetch('/api/results.json?' + Date.now());
     if (!res.ok) throw new Error('Results not ready yet (HTTP ' + res.status + ')');
     const text = await res.text();
@@ -779,7 +710,6 @@ async function loadData() {
     const success = allResults.filter(r => r.status === 'success');
     document.getElementById('resultCount').textContent = `${allResults.length} result${allResults.length !== 1 ? 's' : ''}`;
 
-    // Update stat cards
     if (success.length > 0) {
       const last = success[success.length - 1];
       const prev = success.length > 1 ? success[success.length - 2] : null;
@@ -794,7 +724,6 @@ async function loadData() {
         setDelta('pingDelta', delta(last.ping, prev.ping, true));
       }
 
-      // Status
       const dot = document.getElementById('statusDot');
       const txt = document.getElementById('statusText');
       const age = Date.now() - new Date(last.timestamp).getTime();
@@ -802,7 +731,6 @@ async function loadData() {
       dot.className = 'status-dot';
       txt.textContent = `Last test ${mins < 1 ? 'just now' : mins + 'm ago'}`;
 
-      // Next test countdown
       if (config.test_interval_minutes) {
         const nextMs = new Date(last.timestamp).getTime() + config.test_interval_minutes * 60000;
         const remaining = Math.max(0, Math.round((nextMs - Date.now()) / 60000));
@@ -823,7 +751,6 @@ async function loadData() {
   }
 }
 
-// Initial load + auto-refresh every 60s
 loadData();
 setInterval(loadData, 60000);
 </script>

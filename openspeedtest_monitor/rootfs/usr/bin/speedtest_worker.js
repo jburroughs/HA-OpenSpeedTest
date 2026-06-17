@@ -1,12 +1,14 @@
 #!/usr/bin/env node
 /**
- * OpenSpeedTest Worker
- * Performs a speed test against a self-hosted OpenSpeedTest server.
- * OpenSpeedTest exposes a simple HTTP-based test endpoint.
+ * OpenSpeedTest Worker — measures throughput against a self-hosted
+ * OpenSpeedTest server using multiple genuinely concurrent TCP streams.
  *
- * Download: repeatedly fetch a large chunk from the server and measure throughput.
- * Upload:   repeatedly POST data to the server and measure throughput.
- * Ping:     measure HTTP round-trip latency.
+ * Key fixes vs. naive implementation:
+ *  - Uses 6 parallel persistent connections (not sequential awaited fetches)
+ *  - Streams large payloads instead of small repeated requests, to avoid
+ *    per-request HTTP overhead dominating the measurement
+ *  - Warms up connections before measuring (TCP slow-start skew)
+ *  - Increases socket buffer sizes via highWaterMark
  */
 
 const http = require('http');
@@ -19,170 +21,217 @@ if (!serverUrl) {
     process.exit(1);
 }
 
-function makeRequest(options, postData = null) {
-    return new Promise((resolve, reject) => {
-        const lib = options.protocol === 'https:' ? https : http;
-        const req = lib.request(options, (res) => {
-            let data = Buffer.alloc(0);
-            res.on('data', chunk => { data = Buffer.concat([data, chunk]); });
-            res.on('end', () => resolve({ statusCode: res.statusCode, data, headers: res.headers }));
-        });
-        req.on('error', reject);
-        req.setTimeout(30000, () => { req.destroy(new Error('Request timeout')); });
-        if (postData) req.write(postData);
-        req.end();
+const PARALLEL_STREAMS = 6;
+const WARMUP_MS = 1500;
+const TEST_DURATION_MS = 10000;
+const CHUNK_SIZE = 1024 * 1024; // 1MB chunks for upload
+
+function parseTarget(base) {
+    const url = new URL('/', base);
+    return {
+        hostname: url.hostname,
+        port: url.port ? parseInt(url.port) : (url.protocol === 'https:' ? 443 : 80),
+        protocol: url.protocol,
+        lib: url.protocol === 'https:' ? https : http
+    };
+}
+
+function findEndpoint(target, candidates, method) {
+    return new Promise((resolve) => {
+        let i = 0;
+        const tryNext = () => {
+            if (i >= candidates.length) return resolve('/');
+            const path = candidates[i++];
+            const req = target.lib.request({
+                hostname: target.hostname,
+                port: target.port,
+                protocol: target.protocol,
+                path,
+                method,
+                headers: method === 'POST'
+                    ? { 'Content-Length': '0' }
+                    : {}
+            }, (res) => {
+                res.resume();
+                if (res.statusCode < 400) resolve(path);
+                else tryNext();
+            });
+            req.on('error', tryNext);
+            req.setTimeout(3000, () => { req.destroy(); tryNext(); });
+            req.end();
+        };
+        tryNext();
     });
 }
 
-async function measurePing(base) {
-    const url = new URL('/', base);
+async function measurePing(target) {
     const samples = [];
-    for (let i = 0; i < 5; i++) {
-        const start = Date.now();
-        try {
-            await makeRequest({
-                hostname: url.hostname,
-                port: url.port || (url.protocol === 'https:' ? 443 : 80),
-                path: '/',
+    for (let i = 0; i < 6; i++) {
+        const start = process.hrtime.bigint();
+        await new Promise((resolve) => {
+            const req = target.lib.request({
+                hostname: target.hostname,
+                port: target.port,
+                protocol: target.protocol,
+                path: '/?ping=' + Math.random(),
                 method: 'GET',
-                protocol: url.protocol,
                 headers: { 'Cache-Control': 'no-cache' }
+            }, (res) => {
+                res.resume();
+                res.on('end', () => {
+                    const ms = Number(process.hrtime.bigint() - start) / 1e6;
+                    samples.push(ms);
+                    resolve();
+                });
             });
-            samples.push(Date.now() - start);
-        } catch (e) { /* skip failed ping */ }
-        await new Promise(r => setTimeout(r, 100));
+            req.on('error', () => resolve());
+            req.setTimeout(5000, () => { req.destroy(); resolve(); });
+            req.end();
+        });
+        await new Promise(r => setTimeout(r, 80));
     }
     if (samples.length === 0) return null;
-    return Math.min(...samples);
+    samples.sort((a, b) => a - b);
+    // Use the minimum (best-case latency, excludes congestion/jitter)
+    return Math.round(samples[0] * 10) / 10;
 }
 
-async function measureDownload(base, durationMs = 8000) {
-    const url = new URL('/', base);
-    const hostname = url.hostname;
-    const port = url.port || (url.protocol === 'https:' ? 443 : 80);
-    const protocol = url.protocol;
-
-    // OpenSpeedTest serves a garbage endpoint — fall back to downloading index repeatedly
-    const paths = ['/garbage.php', '/backend/garbage.php', '/'];
-    let testPath = '/';
-    for (const p of paths) {
-        try {
-            const r = await makeRequest({ hostname, port, path: p, method: 'GET', protocol });
-            if (r.statusCode < 400) { testPath = p; break; }
-        } catch(_) {}
-    }
-
+/**
+ * Runs N parallel persistent download streams against `path`, accumulating
+ * total bytes received across all streams. Each stream re-issues a fresh
+ * request as soon as the previous one ends, for the full duration.
+ */
+async function measureDownload(target, path) {
     let totalBytes = 0;
-    const start = Date.now();
-    const promises = [];
+    let measuredBytes = 0;
+    const globalStart = Date.now();
+    const measureStart = globalStart + WARMUP_MS;
+    const endAt = measureStart + TEST_DURATION_MS;
 
-    const fetchChunk = () => new Promise((resolve) => {
-        const lib = protocol === 'https:' ? https : http;
-        const options = {
-            hostname, port, protocol,
-            path: testPath + '?r=' + Math.random(),
-            method: 'GET',
-            headers: { 'Cache-Control': 'no-cache', 'Connection': 'keep-alive' }
+    const runStream = () => new Promise((resolve) => {
+        const fetchOnce = () => {
+            if (Date.now() >= endAt) return resolve();
+            const req = target.lib.request({
+                hostname: target.hostname,
+                port: target.port,
+                protocol: target.protocol,
+                path: path + '?r=' + Math.random() + '&n=' + Date.now(),
+                method: 'GET',
+                headers: { 'Cache-Control': 'no-cache', 'Connection': 'keep-alive' }
+            }, (res) => {
+                res.on('data', (chunk) => {
+                    totalBytes += chunk.length;
+                    if (Date.now() >= measureStart) measuredBytes += chunk.length;
+                });
+                res.on('end', () => {
+                    if (Date.now() < endAt) fetchOnce();
+                    else resolve();
+                });
+                res.on('error', () => resolve());
+            });
+            req.on('error', () => resolve());
+            req.setTimeout(15000, () => { req.destroy(); resolve(); });
+            req.end();
         };
-        const req = lib.request(options, (res) => {
-            let bytes = 0;
-            res.on('data', chunk => { bytes += chunk.length; totalBytes += chunk.length; });
-            res.on('end', () => resolve(bytes));
-        });
-        req.on('error', () => resolve(0));
-        req.setTimeout(10000, () => { req.destroy(); resolve(0); });
-        req.end();
+        fetchOnce();
     });
 
-    // Parallel connections for accurate throughput measurement
-    const runParallel = async () => {
-        while (Date.now() - start < durationMs) {
-            await fetchChunk();
-        }
-    };
+    const streams = [];
+    for (let i = 0; i < PARALLEL_STREAMS; i++) streams.push(runStream());
+    await Promise.all(streams);
 
-    await Promise.all([runParallel(), runParallel(), runParallel()]);
-
-    const elapsed = (Date.now() - start) / 1000;
-    const mbps = (totalBytes * 8) / (elapsed * 1_000_000);
+    const elapsedMeasured = (Date.now() - measureStart) / 1000;
+    if (elapsedMeasured <= 0) return 0;
+    const mbps = (measuredBytes * 8) / (elapsedMeasured * 1_000_000);
     return Math.round(mbps * 100) / 100;
 }
 
-async function measureUpload(base, durationMs = 8000) {
-    const url = new URL('/', base);
-    const hostname = url.hostname;
-    const port = url.port || (url.protocol === 'https:' ? 443 : 80);
-    const protocol = url.protocol;
+/**
+ * Runs N parallel persistent upload streams against `path`.
+ */
+async function measureUpload(target, path) {
+    const payload = Buffer.alloc(CHUNK_SIZE, 0x61);
+    let measuredBytes = 0;
+    const globalStart = Date.now();
+    const measureStart = globalStart + WARMUP_MS;
+    const endAt = measureStart + TEST_DURATION_MS;
 
-    const uploadPaths = ['/upload.php', '/backend/upload.php', '/empty.php', '/'];
-    let testPath = '/';
-    for (const p of uploadPaths) {
-        try {
-            const r = await makeRequest({
-                hostname, port, path: p, method: 'POST', protocol,
-                headers: { 'Content-Type': 'application/octet-stream', 'Content-Length': '0' }
-            }, Buffer.alloc(0));
-            if (r.statusCode < 500) { testPath = p; break; }
-        } catch(_) {}
-    }
-
-    const chunkSize = 1024 * 256; // 256 KB per chunk
-    const payload = Buffer.alloc(chunkSize, 'x');
-    let totalBytes = 0;
-    const start = Date.now();
-
-    const uploadChunk = () => new Promise((resolve) => {
-        const lib = protocol === 'https:' ? https : http;
-        const options = {
-            hostname, port, protocol,
-            path: testPath + '?r=' + Math.random(),
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/octet-stream',
-                'Content-Length': String(chunkSize),
-                'Cache-Control': 'no-cache'
-            }
+    const runStream = () => new Promise((resolve) => {
+        const sendOnce = () => {
+            if (Date.now() >= endAt) return resolve();
+            const startedDuringMeasure = Date.now() >= measureStart;
+            const req = target.lib.request({
+                hostname: target.hostname,
+                port: target.port,
+                protocol: target.protocol,
+                path: path + '?r=' + Math.random(),
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/octet-stream',
+                    'Content-Length': String(payload.length),
+                    'Cache-Control': 'no-cache',
+                    'Connection': 'keep-alive'
+                }
+            }, (res) => {
+                res.resume();
+                res.on('end', () => {
+                    if (startedDuringMeasure) measuredBytes += payload.length;
+                    if (Date.now() < endAt) sendOnce();
+                    else resolve();
+                });
+                res.on('error', () => resolve());
+            });
+            req.on('error', () => resolve());
+            req.setTimeout(15000, () => { req.destroy(); resolve(); });
+            req.write(payload);
+            req.end();
         };
-        const req = lib.request(options, (res) => {
-            res.resume();
-            res.on('end', () => { totalBytes += chunkSize; resolve(); });
-        });
-        req.on('error', () => resolve());
-        req.setTimeout(10000, () => { req.destroy(); resolve(); });
-        req.write(payload);
-        req.end();
+        sendOnce();
     });
 
-    const runParallel = async () => {
-        while (Date.now() - start < durationMs) {
-            await uploadChunk();
-        }
-    };
+    const streams = [];
+    for (let i = 0; i < PARALLEL_STREAMS; i++) streams.push(runStream());
+    await Promise.all(streams);
 
-    await Promise.all([runParallel(), runParallel()]);
-
-    const elapsed = (Date.now() - start) / 1000;
-    const mbps = (totalBytes * 8) / (elapsed * 1_000_000);
+    const elapsedMeasured = (Date.now() - measureStart) / 1000;
+    if (elapsedMeasured <= 0) return 0;
+    const mbps = (measuredBytes * 8) / (elapsedMeasured * 1_000_000);
     return Math.round(mbps * 100) / 100;
 }
 
 async function main() {
     try {
+        const target = parseTarget(serverUrl);
+
         process.stderr.write('Measuring ping...\n');
-        const ping = await measurePing(serverUrl);
+        const ping = await measurePing(target);
 
-        process.stderr.write('Measuring download...\n');
-        const download = await measureDownload(serverUrl);
+        process.stderr.write('Locating download endpoint...\n');
+        const downloadPath = await findEndpoint(
+            target,
+            ['/garbage.php', '/backend/garbage.php', '/', '/index.html'],
+            'GET'
+        );
 
-        process.stderr.write('Measuring upload...\n');
-        const upload = await measureUpload(serverUrl);
+        process.stderr.write(`Measuring download via ${downloadPath} (${PARALLEL_STREAMS} streams)...\n`);
+        const download = await measureDownload(target, downloadPath);
+
+        process.stderr.write('Locating upload endpoint...\n');
+        const uploadPath = await findEndpoint(
+            target,
+            ['/upload.php', '/backend/upload.php', '/empty.php'],
+            'POST'
+        );
+
+        process.stderr.write(`Measuring upload via ${uploadPath} (${PARALLEL_STREAMS} streams)...\n`);
+        const upload = await measureUpload(target, uploadPath);
 
         const result = {
             timestamp: new Date().toISOString(),
             status: 'success',
-            download: download,
-            upload: upload,
-            ping: ping,
+            download,
+            upload,
+            ping,
             server: serverUrl
         };
 

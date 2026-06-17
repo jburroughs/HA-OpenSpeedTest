@@ -3,7 +3,6 @@ set -e
 
 echo "[Setup] Initializing OpenSpeedTest Monitor..."
 
-# HA writes addon options to /data/options.json — read with jq (no bashio needed)
 OPTIONS="/data/options.json"
 
 if [ ! -f "${OPTIONS}" ]; then
@@ -19,16 +18,13 @@ echo "[Setup] OpenSpeedTest Server: ${SPEEDTEST_URL}"
 echo "[Setup] Test Interval: ${INTERVAL} minutes"
 echo "[Setup] Max stored results: ${MAX_RESULTS}"
 
-# Create data directory
 mkdir -p /data/speedtest
 
-# Initialize results file if it doesn't exist
 if [ ! -f /data/speedtest/results.json ]; then
     echo "[]" > /data/speedtest/results.json
     echo "[Setup] Created new results database"
 fi
 
-# Write runtime config for other services
 cat > /data/speedtest/config.json << EOF
 {
   "openspeedtest_url": "${SPEEDTEST_URL}",

@@ -6,22 +6,17 @@ DATA_DIR="/data/speedtest"
 CONFIG_FILE="${DATA_DIR}/config.json"
 RESULTS_FILE="${DATA_DIR}/results.json"
 
-# HA Supervisor writes injected env vars as individual files under this path.
-# This is the most reliable way to read them regardless of base image or s6 version.
 S6_ENV_DIR="/run/s6/container_environment"
 
 resolve_token() {
-    # 1. Already in environment (some base images do pass it through)
     if [ -n "${SUPERVISOR_TOKEN}" ]; then
         echo "${SUPERVISOR_TOKEN}"
         return
     fi
-    # 2. s6 container_environment files (standard HA supervisor injection path)
     if [ -f "${S6_ENV_DIR}/SUPERVISOR_TOKEN" ]; then
         cat "${S6_ENV_DIR}/SUPERVISOR_TOKEN"
         return
     fi
-    # 3. Alternate path used by some HA base versions
     if [ -f "/var/run/s6/container_environment/SUPERVISOR_TOKEN" ]; then
         cat "/var/run/s6/container_environment/SUPERVISOR_TOKEN"
         return
@@ -34,10 +29,6 @@ TOKEN="$(resolve_token)"
 
 log() { echo "[SpeedTest] $(date '+%Y-%m-%d %H:%M:%S') $*"; }
 
-# ---------------------------------------------------------------
-# Push a sensor state to Home Assistant via the REST API
-# Usage: ha_set_sensor <entity_id> <state> <unit> <device_class> <friendly_name> <icon>
-# ---------------------------------------------------------------
 ha_set_sensor() {
     local entity_id="$1"
     local state="$2"
@@ -79,9 +70,6 @@ ha_set_sensor() {
     fi
 }
 
-# ---------------------------------------------------------------
-# Push all sensors to HA after a successful test
-# ---------------------------------------------------------------
 push_to_ha() {
     local download="$1"
     local upload="$2"
@@ -91,62 +79,19 @@ push_to_ha() {
     log "Pushing entities to Home Assistant..."
 
     if [ "${status}" = "success" ]; then
-        ha_set_sensor \
-            "sensor.openspeedtest_download" \
-            "${download}" \
-            "Mbit/s" \
-            "data_rate" \
-            "OpenSpeedTest Download" \
-            "mdi:download-network"
-
-        ha_set_sensor \
-            "sensor.openspeedtest_upload" \
-            "${upload}" \
-            "Mbit/s" \
-            "data_rate" \
-            "OpenSpeedTest Upload" \
-            "mdi:upload-network"
-
-        ha_set_sensor \
-            "sensor.openspeedtest_ping" \
-            "${ping}" \
-            "ms" \
-            "duration" \
-            "OpenSpeedTest Ping" \
-            "mdi:timer-outline"
-
-        ha_set_sensor \
-            "sensor.openspeedtest_status" \
-            "OK" \
-            "" \
-            "" \
-            "OpenSpeedTest Status" \
-            "mdi:check-circle"
+        ha_set_sensor "sensor.openspeedtest_download" "${download}" "Mbit/s" "data_rate" "OpenSpeedTest Download" "mdi:download-network"
+        ha_set_sensor "sensor.openspeedtest_upload" "${upload}" "Mbit/s" "data_rate" "OpenSpeedTest Upload" "mdi:upload-network"
+        ha_set_sensor "sensor.openspeedtest_ping" "${ping}" "ms" "duration" "OpenSpeedTest Ping" "mdi:timer-outline"
+        ha_set_sensor "sensor.openspeedtest_status" "OK" "" "" "OpenSpeedTest Status" "mdi:check-circle"
     else
-        ha_set_sensor \
-            "sensor.openspeedtest_status" \
-            "Error" \
-            "" \
-            "" \
-            "OpenSpeedTest Status" \
-            "mdi:alert-circle"
+        ha_set_sensor "sensor.openspeedtest_status" "Error" "" "" "OpenSpeedTest Status" "mdi:alert-circle"
     fi
 
-    # Always update last-run timestamp
     local now
     now=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-    ha_set_sensor \
-        "sensor.openspeedtest_last_run" \
-        "${now}" \
-        "" \
-        "timestamp" \
-        "OpenSpeedTest Last Run" \
-        "mdi:clock-outline"
+    ha_set_sensor "sensor.openspeedtest_last_run" "${now}" "" "timestamp" "OpenSpeedTest Last Run" "mdi:clock-outline"
 }
 
-# ---------------------------------------------------------------
-# Run one speed test cycle
-# ---------------------------------------------------------------
 run_test() {
     log "Starting speed test..."
 
@@ -180,7 +125,6 @@ run_test() {
         return 1
     fi
 
-    # Validate JSON
     if ! echo "${result}" | jq -e . >/dev/null 2>&1; then
         log "ERROR: Invalid JSON from worker"
         return 1
@@ -193,19 +137,14 @@ run_test() {
 
     log "↓ Download: ${download} Mbps  ↑ Upload: ${upload} Mbps  ◉ Ping: ${ping} ms"
 
-    # Save to results file
     local updated
     updated=$(jq --argjson e "${result}" --argjson max "${max_results}" \
         '. + [$e] | if length > $max then .[-($max):] else . end' "${RESULTS_FILE}")
     echo "${updated}" > "${RESULTS_FILE}"
 
-    # Push to Home Assistant
     push_to_ha "${download}" "${upload}" "${ping}" "success"
 }
 
-# ---------------------------------------------------------------
-# Main loop
-# ---------------------------------------------------------------
 log "SpeedTest daemon starting..."
 log "HA URL: ${HA_URL}"
 log "s6 env dir contents: $(ls ${S6_ENV_DIR} 2>/dev/null | tr '\n' ' ' || echo '(not found)')"

@@ -1,6 +1,4 @@
 #!/usr/bin/env bash
-# Source s6 container environment files before exec so any env var
-# written by the HA supervisor (SUPERVISOR_TOKEN etc.) is available.
 if [ -d /run/s6/container_environment ]; then
     for f in /run/s6/container_environment/*; do
         [ -f "$f" ] && export "$(basename "$f")"="$(cat "$f")"

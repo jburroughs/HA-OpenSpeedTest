@@ -19,7 +19,6 @@ RUN chmod a+x \
     /etc/services.d/speedtest/run \
     /etc/services.d/nginx/run
 
-# Labels
 ARG BUILD_ARCH
 ARG BUILD_DATE
 ARG BUILD_DESCRIPTION
