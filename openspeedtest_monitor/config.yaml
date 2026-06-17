@@ -1,12 +1,11 @@
 name: "OpenSpeedTest Monitor"
-description: "Run scheduled internet speed tests against your self-hosted OpenSpeedTest server and visualize results over time."
-version: "1.6.0"
+description: "Run scheduled internet speed tests against any reachable OpenSpeedTest server — whether it's running locally or as a Docker container on another machine on your network — and visualize results over time."
+version: "1.8.0"
 slug: "openspeedtest_monitor"
 init: false
 homeassistant_api: true
 hassio_api: false
 auth_api: false
-host_network: true
 ingress: true
 ingress_port: 8099
 panel_icon: "mdi:speedometer"

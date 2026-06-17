@@ -199,9 +199,40 @@ async function measureUpload(target, path) {
     return Math.round(mbps * 100) / 100;
 }
 
+function preflightCheck(target) {
+    return new Promise((resolve, reject) => {
+        const req = target.lib.request({
+            hostname: target.hostname,
+            port: target.port,
+            protocol: target.protocol,
+            path: '/',
+            method: 'GET'
+        }, (res) => {
+            res.resume();
+            res.on('end', resolve);
+        });
+        req.on('error', (err) => reject(new Error(
+            `Cannot reach ${target.hostname}:${target.port} — ${err.code || err.message}. ` +
+            `If this server runs on another machine, verify the IP/port, that the remote ` +
+            `Docker container is running, and that no firewall blocks the connection.`
+        )));
+        req.setTimeout(5000, () => {
+            req.destroy();
+            reject(new Error(
+                `Connection to ${target.hostname}:${target.port} timed out after 5s. ` +
+                `Check that the remote host is reachable from this network.`
+            ));
+        });
+        req.end();
+    });
+}
+
 async function main() {
     try {
         const target = parseTarget(serverUrl);
+
+        process.stderr.write(`Checking connectivity to ${target.hostname}:${target.port}...\n`);
+        await preflightCheck(target);
 
         process.stderr.write('Measuring ping...\n');
         const ping = await measurePing(target);

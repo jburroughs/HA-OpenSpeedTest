@@ -34,4 +34,19 @@ cat > /data/speedtest/config.json << EOF
 EOF
 
 echo "[Setup] Configuration written"
+
+# Connectivity pre-check — useful when openspeedtest_url points to a
+# Docker container running on a different host on the network.
+# Capped at 3s so this can never meaningfully delay nginx startup.
+echo "[Setup] Checking connectivity to ${SPEEDTEST_URL}..."
+if curl -s -o /dev/null -m 3 -w "" "${SPEEDTEST_URL}"; then
+    echo "[Setup] ✓ Server reachable"
+else
+    echo "[Setup] ⚠ WARNING: Could not reach ${SPEEDTEST_URL} within 3s"
+    echo "[Setup]   If this server is on another machine, verify:"
+    echo "[Setup]   - The host/IP and port are correct"
+    echo "[Setup]   - The remote Docker container is running"
+    echo "[Setup]   - No firewall is blocking the port between hosts"
+fi
+
 echo "[Setup] Setup complete!"
